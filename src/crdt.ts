@@ -477,6 +477,7 @@ function renderNaiveEditorCRDTSimulation(simulator: Simulator<NaiveEditorCRDTSta
 
 type Char = {
     opId: string;
+    afterId: string;
     character: string;
     deleted: boolean;
 }
@@ -504,7 +505,7 @@ function applyEditorCRDTOperation(op: EditorCRDTOperation, state: EditorCRDTStat
     switch (op.type) {
         case "insert":
             const afterIndex = state.text.findIndex(char => char.opId === op.afterId);
-            state.text.splice(afterIndex + 1, 0, { opId: op.opId, character: op.character, deleted: false });
+            state.text.splice(afterIndex + 1, 0, { opId: op.opId, afterId: op.afterId, character: op.character, deleted: false });
             state.cursor = op.opId;
             return state;
         case "delete":
@@ -587,7 +588,6 @@ function initiateEditorCRDTSimulation(simulator: EditorCRDT) {
         }
 
         document.addEventListener("keydown", (e) => {
-            console.log(`Keydown event for entity ${entity.id}`);
             if (!entity.state.focused) {
                 return;
             }
@@ -756,6 +756,7 @@ main(
             {
                 character: " ",
                 opId: "start",
+                afterId: "null",
                 deleted: true,
             }
         ], cursor: "start", focused: false
