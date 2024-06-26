@@ -1,4 +1,5 @@
 "use strict";
+let CURRENT_SIMULATION = "none";
 function poll(entity, ct, applyOperation) {
     // If the entity is not connected, don't do anything
     if (!entity.connected) {
@@ -22,8 +23,9 @@ function poll(entity, ct, applyOperation) {
     entity.history.push([op, ct]);
     return op;
 }
-function createSimulator() {
+function createSimulator(crdtType) {
     return {
+        crdtType,
         clock: 0,
         entities: new Map(),
         backlog: []
@@ -40,16 +42,20 @@ function addEntity(simulator, id, state, delay) {
         delay
     });
 }
-function main(initiateSimulation, renderSimulation, applyOperation, initialState) {
-    const simulator = createSimulator();
+function main(initiateSimulation, renderSimulation, applyOperation, initialState, crdtType) {
+    const simulator = createSimulator(crdtType);
     addEntity(simulator, "1", initialState(), 3000);
     addEntity(simulator, "2", initialState(), 0);
     addEntity(simulator, "3", initialState(), 0);
     initiateSimulation(simulator);
     let ct = Date.now();
-    setInterval(() => {
+    const loop = setInterval(() => {
         ct = Date.now();
         simulator.clock = ct;
+        if (CURRENT_SIMULATION !== crdtType) {
+            clearInterval(loop);
+            return;
+        }
         simulator.entities.forEach(entity => {
             const op = poll(entity, ct, applyOperation);
             if (op !== undefined) {
@@ -86,7 +92,7 @@ function applyCounterCRDTOperation(op, state) {
     }
 }
 function initiateCounterCRDTSimulation(simulator) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation");
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -141,7 +147,7 @@ function renderCounterCRDTSimulation(simulator) {
     });
 }
 function initiateBrokenCounterCRDTSimulation(simulator) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation");
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -211,7 +217,7 @@ function applyCanvasCRDTOperation(op, state) {
     return newState;
 }
 function initiateCanvasCRDTSimulation(simulator) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation");
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -310,7 +316,7 @@ function diffStrings(a, b) {
     return [{ type: "delete", position: i, length: a.length - i }, { type: "insert", position: i, character: b[i] }, ...diffStrings(a.slice(i + 1), b.slice(i + 1))];
 }
 function initiateNaiveEditorCRDTSimulation(simulator) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation");
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -357,7 +363,19 @@ function applyEditorCRDTOperation(op, state) {
     switch (op.type) {
         case "insert":
             const afterIndex = state.text.findIndex(char => char.opId === op.afterId);
-            state.text.splice(afterIndex + 1, 0, { opId: op.opId, character: op.character, deleted: false });
+            // Find other characters that were inserted after the same character
+            const afterChars = state.text.slice(afterIndex + 1).filter(char => char.afterId === op.afterId);
+            // Find the last character that was inserted after the same character
+            const lastAfterChar = afterChars.length === 0 ? null : afterChars[afterChars.length - 1];
+            // Find the index of the last character that was inserted after the same character
+            const lastAfterIndex = lastAfterChar === null ? -1 : state.text.findIndex(char => char.opId === lastAfterChar.opId);
+            if (lastAfterChar === null) {
+                state.text.push({ opId: op.opId, afterId: op.afterId, character: op.character, deleted: false });
+                state.cursor = op.opId;
+                return state;
+            }
+            const lastAfterCharIndex = state.text.findIndex(char => char.opId === lastAfterChar.opId);
+            state.text.splice(lastAfterCharIndex + 1, 0, { opId: op.opId, afterId: op.afterId, character: op.character, deleted: false });
             state.cursor = op.opId;
             return state;
         case "delete":
@@ -370,7 +388,7 @@ function lines(s) {
     return s.text.filter(char => char.character === "\n" && !char.deleted).length + 1;
 }
 function initiateEditorCRDTSimulation(simulator) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation");
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -411,7 +429,8 @@ function initiateEditorCRDTSimulation(simulator) {
             };
             charDiv.onmouseenter = () => {
                 // Create a tooltip with the opId
-                document.getElementById("tooltip").innerText = charDiv.id;
+                // Find the opId of the character that is being hovered
+                document.getElementById("tooltip").innerText = entity.state.text.find(char => char.opId === entity.state.cursor).opId;
             };
             charDiv.onmouseout = () => {
                 const tooltip = document.getElementById(`tooltip`);
@@ -432,7 +451,6 @@ function initiateEditorCRDTSimulation(simulator) {
             });
         };
         document.addEventListener("keydown", (e) => {
-            console.log(`Keydown event for entity ${entity.id}`);
             if (!entity.state.focused) {
                 return;
             }
@@ -547,36 +565,47 @@ function renderEditorCRDTSimulation(simulator) {
         });
     });
 }
-// main(
-//     initiateCounterCRDTSimulation,
-//     renderCounterCRDTSimulation,
-//     applyCounterCRDTOperation,
-//     0
-// );
-// main(
-//     initiateBrokenCounterCRDTSimulation,
-//     renderCounterCRDTSimulation,
-//     applyBrokenCounterCRDTOperation,
-//     0
-// );
-// main(
-//     initiateCanvasCRDTSimulation,
-//     renderCanvasCRDTSimulation,
-//     applyCanvasCRDTOperation,
-//     () => Array.from({ length: CANVAS_SIZE }, () => Array.from({ length: CANVAS_SIZE }, () => "white"))
-// );
-// main(
-//     initiateNaiveEditorCRDTSimulation,
-//     renderNaiveEditorCRDTSimulation,
-//     applyNaiveEditorCRDTOperation,
-//     () => ""
-// );
-main(initiateEditorCRDTSimulation, renderEditorCRDTSimulation, applyEditorCRDTOperation, () => ({
-    text: [
-        {
-            character: " ",
-            opId: "start",
-            deleted: true,
-        }
-    ], cursor: "start", focused: false
-}));
+function counter() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation").innerHTML = "";
+    }
+    CURRENT_SIMULATION = "counter";
+    main(initiateCounterCRDTSimulation, renderCounterCRDTSimulation, applyCounterCRDTOperation, () => 0, "counter");
+}
+function brokenCounter() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation").innerHTML = "";
+    }
+    CURRENT_SIMULATION = "brokenCounter";
+    main(initiateBrokenCounterCRDTSimulation, renderCounterCRDTSimulation, applyBrokenCounterCRDTOperation, () => 0, "brokenCounter");
+}
+function canvas() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation").innerHTML = "";
+    }
+    CURRENT_SIMULATION = "canvas";
+    main(initiateCanvasCRDTSimulation, renderCanvasCRDTSimulation, applyCanvasCRDTOperation, () => Array.from({ length: CANVAS_SIZE }, () => Array.from({ length: CANVAS_SIZE }, () => "white")), "canvas");
+}
+function naiveEditor() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation").innerHTML = "";
+    }
+    CURRENT_SIMULATION = "naiveEditor";
+    main(initiateNaiveEditorCRDTSimulation, renderNaiveEditorCRDTSimulation, applyNaiveEditorCRDTOperation, () => "", "naiveEditor");
+}
+function editor() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation").innerHTML = "";
+    }
+    CURRENT_SIMULATION = "editor";
+    main(initiateEditorCRDTSimulation, renderEditorCRDTSimulation, applyEditorCRDTOperation, () => ({
+        text: [
+            {
+                character: " ",
+                opId: "start",
+                afterId: "null",
+                deleted: true,
+            }
+        ], cursor: "start", focused: false
+    }), "editor");
+}

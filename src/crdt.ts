@@ -1,5 +1,8 @@
 
 
+
+let CURRENT_SIMULATION : "none" | "counter" | "brokenCounter" | "canvas" | "naiveEditor" | "editor" = "none";
+
 type time = number;
 
 type Entity<State, Operation> = {
@@ -42,6 +45,7 @@ function poll<State, Operation>(entity: Entity<State, Operation>, ct: time, appl
 }
 
 type Simulator<State, Operation> = {
+    crdtType: string;
     clock: time;
     entities: Map<string, Entity<State, Operation>>;
     backlog: {
@@ -51,8 +55,9 @@ type Simulator<State, Operation> = {
     }[]
 };
 
-function createSimulator<State, Operation>(): Simulator<State, Operation> {
+function createSimulator<State, Operation>(crdtType: string): Simulator<State, Operation> {
     return {
+        crdtType,
         clock: 0,
         entities: new Map(),
         backlog: []
@@ -76,8 +81,9 @@ function main<State, Operation>(
     renderSimulation: (simulator: Simulator<State, Operation>) => void,
     applyOperation: (op: Operation, state: State) => State,
     initialState: () => State,
+    crdtType: string,
 ) {
-    const simulator: Simulator<State, Operation> = createSimulator();
+    const simulator: Simulator<State, Operation> = createSimulator(crdtType);
     addEntity(simulator, "1", initialState(), 3000);
     addEntity(simulator, "2", initialState(), 0);
     addEntity(simulator, "3", initialState(), 0);
@@ -85,9 +91,14 @@ function main<State, Operation>(
     initiateSimulation(simulator);
 
     let ct = Date.now();
-    setInterval(() => {
+    const loop = setInterval(() => {
         ct = Date.now();
         simulator.clock = ct;
+
+        if (CURRENT_SIMULATION !== crdtType) {
+            clearInterval(loop);
+            return;
+        }
 
         simulator.entities.forEach(entity => {
             const op = poll(entity, ct, applyOperation);
@@ -135,7 +146,8 @@ function applyCounterCRDTOperation(op: CounterCRDTOperation, state: CounterCRDTS
 }
 
 function initiateCounterCRDTSimulation(simulator: CounterCRDT) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation")!;
+
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -185,7 +197,7 @@ function initiateCounterCRDTSimulation(simulator: CounterCRDT) {
         entityDiv.appendChild(connectedSwitch);
 
 
-        simulation.appendChild(entityDiv);
+        simulation!.appendChild(entityDiv);
     });
 }
 
@@ -197,7 +209,8 @@ function renderCounterCRDTSimulation(simulator: Simulator<CounterCRDTState, Coun
 }
 
 function initiateBrokenCounterCRDTSimulation(simulator: CounterCRDT) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation")!;
+
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -251,7 +264,7 @@ function initiateBrokenCounterCRDTSimulation(simulator: CounterCRDT) {
         entityDiv.appendChild(connectedSwitch);
 
 
-        simulation.appendChild(entityDiv);
+        simulation!.appendChild(entityDiv);
     });
 }
 
@@ -291,7 +304,8 @@ function applyCanvasCRDTOperation(op: CanvasCRDTOperation, state: CanvasCRDTStat
 }
 
 function initiateCanvasCRDTSimulation(simulator: CanvasCRDT) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation")!;
+
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -363,7 +377,7 @@ function initiateCanvasCRDTSimulation(simulator: CanvasCRDT) {
         entityDiv.appendChild(connectedSwitch);
 
 
-        simulation.appendChild(entityDiv);
+        simulation!.appendChild(entityDiv);
     });
 }
 
@@ -402,6 +416,7 @@ function applyNaiveEditorCRDTOperation(op: NaiveEditorCRDTOperation, state: Naiv
     }
 }
 
+
 function diffStrings(a: string, b: string): NaiveEditorCRDTOperation[] {
     let i = 0;
     while (i < a.length && i < b.length && a[i] === b[i]) {
@@ -420,7 +435,8 @@ function diffStrings(a: string, b: string): NaiveEditorCRDTOperation[] {
 }
 
 function initiateNaiveEditorCRDTSimulation(simulator: NaiveEditorCRDT) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation")!;
+
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -535,7 +551,8 @@ function lines(s: EditorCRDTState): number {
 
 
 function initiateEditorCRDTSimulation(simulator: EditorCRDT) {
-    let simulation = document.body.appendChild(document.createElement("div"));
+    let simulation = document.getElementById("simulation")!;
+
     simulator.entities.forEach(entity => {
         let entityDiv = document.createElement("div");
         entityDiv.innerText = entity.id;
@@ -578,7 +595,8 @@ function initiateEditorCRDTSimulation(simulator: EditorCRDT) {
             }
             charDiv.onmouseenter = () => {
                 // Create a tooltip with the opId
-                document.getElementById("tooltip")!.innerText = charDiv.id;
+                // Find the opId of the character that is being hovered
+                document.getElementById("tooltip")!.innerText = entity.state.text.find(char => char.opId === entity.state.cursor)!.opId;
             }
             charDiv.onmouseout = () => {
                 const tooltip = document.getElementById(`tooltip`);
@@ -677,7 +695,7 @@ function initiateEditorCRDTSimulation(simulator: EditorCRDT) {
             entity.connected = connectedSwitch.checked;
         };
         entityDiv.appendChild(connectedSwitch);
-        simulation.appendChild(entityDiv);
+        simulation!.appendChild(entityDiv);
     });
 
     const tooltip = document.createElement("div");
@@ -731,49 +749,82 @@ function renderEditorCRDTSimulation(simulator: Simulator<EditorCRDTState, Editor
 
 
 
-// main(
-//     initiateCounterCRDTSimulation,
-//     renderCounterCRDTSimulation,
-//     applyCounterCRDTOperation,
-//     0
-// );
+function counter() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation")!.innerHTML = "";
+    }
+    CURRENT_SIMULATION = "counter";
+    main(
+        initiateCounterCRDTSimulation,
+        renderCounterCRDTSimulation,
+        applyCounterCRDTOperation,
+        () => 0,
+        "counter"
+    );
+}
 
+function brokenCounter() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation")!.innerHTML = "";
+    }
+    CURRENT_SIMULATION = "brokenCounter";
+    main(
+        initiateBrokenCounterCRDTSimulation,
+        renderCounterCRDTSimulation,
+        applyBrokenCounterCRDTOperation,
+        () => 0,
+        "brokenCounter"
+    );
+}
 
-// main(
-//     initiateBrokenCounterCRDTSimulation,
-//     renderCounterCRDTSimulation,
-//     applyBrokenCounterCRDTOperation,
-//     0
-// );
+function canvas() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation")!.innerHTML = "";
+    }
+    CURRENT_SIMULATION = "canvas";
+    main(
+        initiateCanvasCRDTSimulation,
+        renderCanvasCRDTSimulation,
+        applyCanvasCRDTOperation,
+        () => Array.from({ length: CANVAS_SIZE }, () => Array.from({ length: CANVAS_SIZE }, () => "white")),
+        "canvas"
+    );
+}
 
+function naiveEditor() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation")!.innerHTML = "";
+    }
+    CURRENT_SIMULATION = "naiveEditor";
+    main(
+        initiateNaiveEditorCRDTSimulation,
+        renderNaiveEditorCRDTSimulation,
+        applyNaiveEditorCRDTOperation,
+        () => "",
+        "naiveEditor"
+    );
+}
 
-// main(
-//     initiateCanvasCRDTSimulation,
-//     renderCanvasCRDTSimulation,
-//     applyCanvasCRDTOperation,
-//     () => Array.from({ length: CANVAS_SIZE }, () => Array.from({ length: CANVAS_SIZE }, () => "white"))
-// );
-
-// main(
-//     initiateNaiveEditorCRDTSimulation,
-//     renderNaiveEditorCRDTSimulation,
-//     applyNaiveEditorCRDTOperation,
-//     () => ""
-// );
-
-main(
-    initiateEditorCRDTSimulation,
-    renderEditorCRDTSimulation,
-    applyEditorCRDTOperation,
-    () => ({
-        text: [
-            {
-                character: " ",
-                opId: "start",
-                afterId: "null",
-                deleted: true,
-            }
-        ], cursor: "start", focused: false
-    })
-);
+function editor() {
+    if (document.getElementById("simulation") !== null) {
+        document.getElementById("simulation")!.innerHTML = "";
+    }
+    CURRENT_SIMULATION = "editor";
+    main(
+        initiateEditorCRDTSimulation,
+        renderEditorCRDTSimulation,
+        applyEditorCRDTOperation,
+        () => ({
+            text: [
+                {
+                    character: " ",
+                    opId: "start",
+                    afterId: "null",
+                    deleted: true,
+                }
+            ], cursor: "start", focused: false
+        }),
+        "editor"
+    );
+}
 
