@@ -303,11 +303,11 @@ function initiateCanvasCRDTSimulation(simulator: CanvasCRDT) {
         currentState.style.height = `${CANVAS_SIZE * 2}px`;
         currentState.style.border = "1px solid black";
 
-        for(let y = 0; y < CANVAS_SIZE; y++) {
+        for (let y = 0; y < CANVAS_SIZE; y++) {
             let row = document.createElement("div");
             row.style.display = "flex";
             row.style.flexDirection = "row";
-            for(let x = 0; x < CANVAS_SIZE; x++) {
+            for (let x = 0; x < CANVAS_SIZE; x++) {
                 let pixel = document.createElement("div");
                 pixel.id = `${entity.id}-${y}-${x}`;
                 pixel.style.width = "2px";
@@ -369,13 +369,350 @@ function initiateCanvasCRDTSimulation(simulator: CanvasCRDT) {
 
 function renderCanvasCRDTSimulation(simulator: Simulator<CanvasCRDTState, CanvasCRDTOperation>) {
     simulator.entities.forEach(entity => {
-        for(let y = 0; y < CANVAS_SIZE; y++) {
-            for(let x = 0; x < CANVAS_SIZE; x++) {
+        for (let y = 0; y < CANVAS_SIZE; y++) {
+            for (let x = 0; x < CANVAS_SIZE; x++) {
                 let pixel = document.getElementById(`${entity.id}-${y}-${x}`);
                 pixel!.style.backgroundColor = entity.state[y][x];
             }
         }
     });
+}
+
+
+type NaiveEditorCRDTState = string;
+type NaiveEditorCRDTOperation = {
+    type: "insert";
+    position: number;
+    character: string;
+} | {
+    type: "delete";
+    position: number;
+    length: number;
+};
+
+type NaiveEditorCRDT = Simulator<NaiveEditorCRDTState, NaiveEditorCRDTOperation>;
+
+
+function applyNaiveEditorCRDTOperation(op: NaiveEditorCRDTOperation, state: NaiveEditorCRDTState): NaiveEditorCRDTState {
+    switch (op.type) {
+        case "insert":
+            return state.slice(0, op.position) + op.character + state.slice(op.position);
+        case "delete":
+            return state.slice(0, op.position) + state.slice(op.position + op.length);
+    }
+}
+
+function diffStrings(a: string, b: string): NaiveEditorCRDTOperation[] {
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) {
+        i++;
+    }
+    if (i === a.length && i === b.length) {
+        return [];
+    }
+    if (i === a.length) {
+        return [{ type: "insert", position: i, character: b[i] }, ...diffStrings("", b.slice(i + 1))];
+    }
+    if (i === b.length) {
+        return [{ type: "delete", position: i, length: a.length - i }, ...diffStrings(a.slice(i + 1), "")];
+    }
+    return [{ type: "delete", position: i, length: a.length - i }, { type: "insert", position: i, character: b[i] }, ...diffStrings(a.slice(i + 1), b.slice(i + 1))];
+}
+
+function initiateNaiveEditorCRDTSimulation(simulator: NaiveEditorCRDT) {
+    let simulation = document.body.appendChild(document.createElement("div"));
+    simulator.entities.forEach(entity => {
+        let entityDiv = document.createElement("div");
+        entityDiv.innerText = entity.id;
+        let currentState = document.createElement("input");
+        currentState.id = `${entity.id}-state`;
+        currentState.value = entity.state
+
+        currentState.oninput = () => {
+            const diff = diffStrings(entity.state, currentState.value);
+            diff.forEach(d => {
+                entity.backlog.push(d);
+            });
+            entity.state = currentState.value;
+        }
+
+        entityDiv.appendChild(currentState);
+
+
+        // Add a slider to change the delay
+        let delaySlider = document.createElement("input");
+        delaySlider.type = "range";
+        delaySlider.min = "0";
+        delaySlider.max = "10000";
+        delaySlider.step = "100";
+        delaySlider.value = `${entity.delay}`;
+        delaySlider.oninput = () => {
+            entity.delay = parseInt(delaySlider.value);
+        };
+        entityDiv.appendChild(delaySlider);
+
+        // Add a switch to toggle the connection
+        let connectedSwitch = document.createElement("input");
+        connectedSwitch.type = "checkbox";
+        connectedSwitch.checked = entity.connected;
+        connectedSwitch.onchange = () => {
+            entity.connected = connectedSwitch.checked;
+        };
+        entityDiv.appendChild(connectedSwitch);
+
+
+        simulation.appendChild(entityDiv);
+    });
+}
+
+function renderNaiveEditorCRDTSimulation(simulator: Simulator<NaiveEditorCRDTState, NaiveEditorCRDTOperation>) {
+    simulator.entities.forEach(entity => {
+        let currentState = document.getElementById(`${entity.id}-state`) as HTMLInputElement;
+        currentState.value = entity.state;
+    });
+}
+
+
+
+
+type Char = {
+    opId: string;
+    character: string;
+    deleted: boolean;
+}
+
+type EditorCRDTState = {
+    text: Char[];
+    cursor: string;
+    focused: boolean;
+}
+
+type EditorCRDTOperation = {
+    type: "insert";
+    opId: string;
+    afterId: string;
+    character: string;
+} | {
+    type: "delete";
+    opId: string;
+    removeId: string;
+};
+
+type EditorCRDT = Simulator<EditorCRDTState, EditorCRDTOperation>;
+
+function applyEditorCRDTOperation(op: EditorCRDTOperation, state: EditorCRDTState): EditorCRDTState {
+    switch (op.type) {
+        case "insert":
+            const afterIndex = state.text.findIndex(char => char.opId === op.afterId);
+            state.text.splice(afterIndex + 1, 0, { opId: op.opId, character: op.character, deleted: false });
+            state.cursor = op.opId;
+            return state;
+        case "delete":
+            const removeIndex = state.text.findIndex(char => char.opId === op.removeId);
+            state.text[removeIndex].deleted = true;
+            return state;
+    }
+}
+
+function lines(s: EditorCRDTState): number {
+    return s.text.filter(char => char.character === "\n" && !char.deleted).length + 1;
+}
+
+
+function initiateEditorCRDTSimulation(simulator: EditorCRDT) {
+    let simulation = document.body.appendChild(document.createElement("div"));
+    simulator.entities.forEach(entity => {
+        let entityDiv = document.createElement("div");
+        entityDiv.innerText = entity.id;
+        let currentState = document.createElement("div");
+        currentState.id = `${entity.id}-state`;
+        currentState.style.display = "flex";
+        currentState.style.flexDirection = "row";
+        currentState.style.border = "1px solid black";
+        currentState.style.maxWidth = "800px";
+        currentState.style.overflow = "wrap";
+        currentState.style.minHeight = lines(entity.state) * 20 + "px";
+
+        for (let i = 0; i < 40; i++) {
+            let charDiv = document.createElement("div");
+            charDiv.id = `${entity.id}-0-${i}`;
+            charDiv.innerText = "";
+            charDiv.style.border = "1px solid black";
+            charDiv.style.width = "20px";
+            charDiv.style.height = "20px";
+            charDiv.style.display = "flex";
+            charDiv.style.justifyContent = "center";
+            charDiv.style.alignItems = "center";
+            charDiv.style.backgroundColor = "white";
+            charDiv.style.color = "black";
+            charDiv.style.fontFamily = "monospace";
+            charDiv.style.fontSize = "16px";
+            charDiv.style.overflow = "hidden";
+            // charDiv.style.textOverflow = "ellipsis";
+            // charDiv.style.whiteSpace = "nowrap";
+
+            charDiv.onclick = () => {
+                console.log(`Entity ${entity.id} is focused`);
+                entity.state.cursor = entity.state.text.find(char => char.opId === entity.state.cursor)!.opId;
+                entity.state.focused = true;
+                simulator.entities.forEach(otherEntity => {
+                    if (otherEntity.id !== entity.id) {
+                        otherEntity.state.focused = false;
+                    }
+                });
+            }
+            charDiv.onmouseenter = () => {
+                // Create a tooltip with the opId
+                document.getElementById("tooltip")!.innerText = charDiv.id;
+            }
+            charDiv.onmouseout = () => {
+                const tooltip = document.getElementById(`tooltip`);
+                if (tooltip !== null) {
+                    tooltip.innerText = "";
+                }
+            }
+
+            currentState.appendChild(charDiv);
+        };
+
+        currentState.onclick = () => {
+            console.log(`Entity ${entity.id} is focused`);
+            entity.state.focused = true;
+
+            simulator.entities.forEach(otherEntity => {
+                if (otherEntity.id !== entity.id) {
+                    otherEntity.state.focused = false;
+                }
+            });
+        }
+
+        document.addEventListener("keydown", (e) => {
+            console.log(`Keydown event for entity ${entity.id}`);
+            if (!entity.state.focused) {
+                return;
+            }
+            if (e.key === "Meta" || e.key === "Shift" || e.key === "Control" || e.key === "Alt") {
+                return;
+            }
+
+            if (e.key === "ArrowLeft") {
+                const cursorIndex = entity.state.text.findIndex(char => char.opId === entity.state.cursor);
+                if (cursorIndex === -1) {
+                    return;
+                }
+                // Find the previous character that is not deleted
+                const previousChar = entity.state.text.slice(0, cursorIndex).reverse().find(char => !char.deleted);
+                if (previousChar === undefined) {
+                    return;
+                }
+                entity.state.cursor = previousChar.opId;
+                return;
+            }
+
+            if (e.key === "ArrowRight") {
+                const cursorIndex = entity.state.text.findIndex(char => char.opId === entity.state.cursor);
+                if (cursorIndex === -1) {
+                    return;
+                }
+                // Find the next character that is not deleted
+                const nextChar = entity.state.text.slice(cursorIndex + 1).find(char => !char.deleted);
+                if (nextChar === undefined) {
+                    return;
+                }
+                entity.state.cursor = nextChar.opId;
+                return;
+            }
+
+            if (e.key === "Backspace") {
+                const cursorIndex = entity.state.text.findIndex(char => char.opId === entity.state.cursor);
+                if (cursorIndex === -1) {
+                    return;
+                }
+                // Find the previous character that is not deleted
+                const previousChar = entity.state.text.slice(0, cursorIndex).reverse().find(char => !char.deleted);
+                entity.state.text[cursorIndex].deleted = true;
+                entity.state.cursor = previousChar === undefined ? "start" : previousChar.opId;
+                entity.backlog.push({ type: "delete", opId: entity.state.text[cursorIndex].opId, removeId: entity.state.text[cursorIndex].opId });
+            } else {
+                const newOpId = `${entity.history.length + entity.backlog.length + 1}@${entity.id}`;
+                entity.backlog.push({ type: "insert", opId: newOpId, afterId: entity.state.cursor, character: e.key });
+                entity.state = applyEditorCRDTOperation({ type: "insert", opId: newOpId, afterId: entity.state.cursor, character: e.key }, entity.state);
+            }
+        });
+
+        entityDiv.appendChild(currentState);
+
+
+        // Add a slider to change the delay
+        let delaySlider = document.createElement("input");
+        delaySlider.type = "range";
+        delaySlider.min = "0";
+        delaySlider.max = "10000";
+        delaySlider.step = "100";
+        delaySlider.value = `${entity.delay}`;
+        delaySlider.oninput = () => {
+            entity.delay = parseInt(delaySlider.value);
+        };
+        entityDiv.appendChild(delaySlider);
+
+        // Add a switch to toggle the connection
+        let connectedSwitch = document.createElement("input");
+        connectedSwitch.type = "checkbox";
+        connectedSwitch.checked = entity.connected;
+        connectedSwitch.onchange = () => {
+            entity.connected = connectedSwitch.checked;
+        };
+        entityDiv.appendChild(connectedSwitch);
+        simulation.appendChild(entityDiv);
+    });
+
+    const tooltip = document.createElement("div");
+    tooltip.id = `tooltip`;
+    tooltip.style.position = "absolute";
+    tooltip.style.top = "300px";
+    tooltip.style.left = "300px";
+    tooltip.style.backgroundColor = "black";
+    tooltip.style.color = "white";
+    tooltip.style.padding = "5px";
+    tooltip.style.borderRadius = "5px";
+    tooltip.style.zIndex = "1";
+    simulation.appendChild(tooltip);
+}
+
+function renderEditorCRDTSimulation(simulator: Simulator<EditorCRDTState, EditorCRDTOperation>) {
+    simulator.entities.forEach(entity => {
+        let currentState = document.getElementById(`${entity.id}-state`) as HTMLInputElement;
+        currentState.style.border = `${entity.state.focused ? "3px" : "1px"} solid black`;
+        let totalLines = lines(entity.state);
+        currentState.style.minHeight = totalLines * 20 + "px";
+        let currentLine = 0;
+        let currentChar = 0;
+        for (let i = 0; i < 40; i++) {
+            let charDiv = document.getElementById(`${entity.id}-0-${i}`) as HTMLDivElement;
+            charDiv.innerText = "";
+            charDiv.style.backgroundColor = "white";
+        }
+        entity.state.text.forEach(char => {
+            if (char.deleted) {
+                return;
+            }
+            if (char.character === "Enter") {
+                currentLine++;
+                currentChar = 0;
+                return;
+            }
+
+            let charDiv = document.getElementById(`${entity.id}-${currentLine}-${currentChar}`) as HTMLDivElement;
+            charDiv.innerText = char.character;
+            if (char.opId === entity.state.cursor) {
+                charDiv.style.backgroundColor = "lightblue";
+            }
+
+            currentChar++;
+
+        });
+    }
+    );
 }
 
 
@@ -396,11 +733,32 @@ function renderCanvasCRDTSimulation(simulator: Simulator<CanvasCRDTState, Canvas
 // );
 
 
-main(
-    initiateCanvasCRDTSimulation,
-    renderCanvasCRDTSimulation,
-    applyCanvasCRDTOperation,
-    () => Array.from({ length: CANVAS_SIZE }, () => Array.from({ length: CANVAS_SIZE }, () => "white"))
-);
+// main(
+//     initiateCanvasCRDTSimulation,
+//     renderCanvasCRDTSimulation,
+//     applyCanvasCRDTOperation,
+//     () => Array.from({ length: CANVAS_SIZE }, () => Array.from({ length: CANVAS_SIZE }, () => "white"))
+// );
 
+// main(
+//     initiateNaiveEditorCRDTSimulation,
+//     renderNaiveEditorCRDTSimulation,
+//     applyNaiveEditorCRDTOperation,
+//     () => ""
+// );
+
+main(
+    initiateEditorCRDTSimulation,
+    renderEditorCRDTSimulation,
+    applyEditorCRDTOperation,
+    () => ({
+        text: [
+            {
+                character: " ",
+                opId: "start",
+                deleted: true,
+            }
+        ], cursor: "start", focused: false
+    })
+);
 
