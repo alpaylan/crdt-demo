@@ -505,7 +505,21 @@ function applyEditorCRDTOperation(op: EditorCRDTOperation, state: EditorCRDTStat
     switch (op.type) {
         case "insert":
             const afterIndex = state.text.findIndex(char => char.opId === op.afterId);
-            state.text.splice(afterIndex + 1, 0, { opId: op.opId, afterId: op.afterId, character: op.character, deleted: false });
+            // Find other characters that were inserted after the same character
+            const afterChars = state.text.slice(afterIndex + 1).filter(char => char.afterId === op.afterId);
+            // Find the last character that was inserted after the same character
+            const lastAfterChar = afterChars.length === 0 ? null : afterChars[afterChars.length - 1];
+            // Find the index of the last character that was inserted after the same character
+            const lastAfterIndex = lastAfterChar === null ? -1 : state.text.findIndex(char => char.opId === lastAfterChar.opId);
+
+            if (lastAfterChar === null) {
+                state.text.push({ opId: op.opId, afterId: op.afterId, character: op.character, deleted: false });
+                state.cursor = op.opId;
+                return state;
+            }
+
+            const lastAfterCharIndex = state.text.findIndex(char => char.opId === lastAfterChar.opId);
+            state.text.splice(lastAfterCharIndex + 1, 0, { opId: op.opId, afterId: op.afterId, character: op.character, deleted: false });
             state.cursor = op.opId;
             return state;
         case "delete":
